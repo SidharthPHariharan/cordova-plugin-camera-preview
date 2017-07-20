@@ -48,6 +48,7 @@ import java.util.Arrays;
 public class CameraActivity extends Fragment {
 
   public interface CameraPreviewListener {
+    void onPreviewPictureTaken(String originalPicture);
     void onPictureTaken(String originalPicture);
     void onPictureTakenError(String message);
     void onFocusSet(int pointX, int pointY);
@@ -146,7 +147,8 @@ public class CameraActivity extends Fragment {
                   setFocusArea((int)event.getX(0), (int)event.getY(0), new Camera.AutoFocusCallback() {
                     public void onAutoFocus(boolean success, Camera camera) {
                       if (success) {
-                        takePicture(0, 0, 85);
+                        //takePicture(0, 0, 85);
+                        takePreviewPicture(0,0,85);
                       } else {
                         Log.d(TAG, "onTouch:" + " setFocusArea() did not suceed");
                       }
@@ -154,7 +156,8 @@ public class CameraActivity extends Fragment {
                   });
 
                 } else if(tapToTakePicture){
-                  takePicture(0, 0, 85);
+                  //takePicture(0, 0, 85);
+                  takePreviewPicture(0,0,85);
 
                 } else if(tapToFocus){
                   setFocusArea((int)event.getX(0), (int)event.getY(0), new Camera.AutoFocusCallback() {
@@ -346,6 +349,23 @@ public class CameraActivity extends Fragment {
     }
   }
 
+  public void pictureFromPreview(){
+    mPreview.setOneShotPreviewCallback(picPreviewCallback);
+  }
+
+  Camera.PreviewCallback picPreviewCallback = new Camera.PreviewCallback(){
+    @Override
+    public void onPreviewFrame(byte[] data,Camera cam){
+            //Camera.Size previewSize = cam.getParameters().getPreviewSize();
+            /*YuvImage yuvImage = new YuvImage(data, ImageFormat.NV21,width,height, null);
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            yuvImage.compressToJpeg(new Rect(x,y,width,height),80,baos);
+            byte[] jdata = baos.toByteArray();*/
+            String encodedImage = Base64.encodeToString(data, Base64.NO_WRAP);
+            eventListener.onPreviewPictureTaken(encodedImage);
+    }
+  };
+
   public void setCameraParameters(Camera.Parameters params) {
     cameraParameters = params;
 
@@ -371,6 +391,41 @@ public class CameraActivity extends Fragment {
     }
   };
 
+  public static Bitmap crop(final Bitmap src, final int w, final int h,
+                            final float horizontalCenterPercent, final float verticalCenterPercent) {
+    if (horizontalCenterPercent < 0 || horizontalCenterPercent > 1 || verticalCenterPercent < 0
+            || verticalCenterPercent > 1) {
+      throw new IllegalArgumentException("horizontalCenterPercent and verticalCenterPercent must be between 0.0f and 1.0f, inclusive.");
+    }
+    final int srcWidth = src.getWidth();
+    final int srcHeight = src.getHeight();
+    // exit early if no resize/crop needed
+    if (w == srcWidth && h == srcHeight) {
+      return src;
+    }
+    final Matrix m = new Matrix();
+    final float scale = Math.max(
+            (float) w / srcWidth,
+            (float) h / srcHeight);
+    m.setScale(scale, scale);
+    final int srcCroppedW, srcCroppedH;
+    int srcX, srcY;
+    srcCroppedW = Math.round(w / scale);
+    srcCroppedH = Math.round(h / scale);
+    srcX = (int) (srcWidth * horizontalCenterPercent - srcCroppedW / 2);
+    srcY = (int) (srcHeight * verticalCenterPercent - srcCroppedH / 2);
+    // Nudge srcX and srcY to be within the bounds of src
+    srcX = Math.max(Math.min(srcX, srcWidth - srcCroppedW), 0);
+    srcY = Math.max(Math.min(srcY, srcHeight - srcCroppedH), 0);
+    final Bitmap cropped = Bitmap.createBitmap(src, srcX, srcY, srcCroppedW, srcCroppedH, m,
+            true /* filter */);
+    Log.i(TAG, "CameraPreview IN crop, srcW/H="+srcWidth+"/"+srcHeight+" desiredW/H="+w+"/"+h+" srcX/Y="+srcX+"/"+srcY + " innerW/H="+srcCroppedW+"/"+srcCroppedH+" scale="+scale+" resultW/H="+cropped.getWidth()+"/"+cropped.getHeight());
+    if ((w != cropped.getWidth() || h != cropped.getHeight())) {
+      Log.e(TAG, "last center crop violated assumptions.");
+    }
+    return cropped;
+  }
+
   PictureCallback jpegPictureCallback = new PictureCallback(){
     public void onPictureTaken(byte[] data, Camera arg1){
       Log.d(TAG, "CameraPreview jpegPictureCallback");
@@ -385,18 +440,73 @@ public class CameraActivity extends Fragment {
           bitmap.compress(Bitmap.CompressFormat.JPEG, currentQuality, outputStream);
           data = outputStream.toByteArray();
         }
-
+        
         String encodedImage = Base64.encodeToString(data, Base64.NO_WRAP);
 
         eventListener.onPictureTaken(encodedImage);
-        Log.d(TAG, "CameraPreview pictureTakenHandler called back");
+        Log.d(TAG, "CameraPreview pictureTakenHandler");
       } catch (OutOfMemoryError e) {
+        e.printStackTrace();
         // most likely failed to allocate memory for rotateBitmap
         Log.d(TAG, "CameraPreview OutOfMemoryError");
         // failed to allocate memory
         eventListener.onPictureTakenError("Picture too large (memory)");
       } catch (Exception e) {
+        e.printStackTrace();
         Log.d(TAG, "CameraPreview onPictureTaken general exception");
+      } finally {
+        canTakePicture = true;
+        mCamera.startPreview();
+      }
+    }
+  };
+
+  PictureCallback jpegPreviewPictureCallback = new PictureCallback(){
+    public void onPictureTaken(byte[] data, Camera arg1){
+      Log.d(TAG, "CameraPreview jpegPreviewPictureCallback");
+
+      try {
+
+        /*if(cameraCurrentlyLocked == Camera.CameraInfo.CAMERA_FACING_FRONT) {
+          Bitmap bitmap = BitmapFactory.decodeByteArray(data, 0, data.length);
+          bitmap = flipBitmap(bitmap);
+
+          ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+          bitmap.compress(Bitmap.CompressFormat.JPEG, currentQuality, outputStream);
+          data = outputStream.toByteArray();
+        }*/
+
+        Camera.Parameters parameters = mCamera.getParameters();
+        int pwidth = parameters.getPreviewSize().width;
+        int pheight = parameters.getPreviewSize().height;
+
+        Bitmap bitmap = BitmapFactory.decodeByteArray(data, 0, data.length);
+        Matrix mat = new Matrix();
+
+        if(pwidth>pheight){
+          mat.postRotate(90);
+        }
+
+        Bitmap bmp = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), mat, true);
+        bitmap.recycle();
+        Bitmap bmp1 = crop(bmp, width, height, 0.5f,0.5f);
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        bmp1.compress(Bitmap.CompressFormat.JPEG, currentQuality, outputStream);
+        data = outputStream.toByteArray();
+        
+        String encodedImage = Base64.encodeToString(data, Base64.NO_WRAP);
+
+        eventListener.onPreviewPictureTaken(encodedImage);
+        Log.d(TAG, "CameraPreview pictureTakenHandler called back bitmap.getHeight:" + bitmap.getHeight() + ", y:" + y + ", height:" + height + ", avg:" + (bitmap.getHeight()/y) + ", avg1:" + (bitmap.getHeight()/height));
+      } catch (OutOfMemoryError e) {
+        e.printStackTrace();
+        // most likely failed to allocate memory for rotateBitmap
+        Log.d(TAG, "CameraPreview OutOfMemoryError");
+        // failed to allocate memory
+        eventListener.onPictureTakenError("Picture too large (memory)");
+      } catch (Exception e) {
+        e.printStackTrace();
+        Log.d(TAG, "CameraPreview onPreviewPictureTaken general exception");
       } finally {
         canTakePicture = true;
         mCamera.startPreview();
@@ -497,10 +607,46 @@ public class CameraActivity extends Fragment {
             params.setJpegQuality(quality);
           }
 
-          params.setRotation(mPreview.getDisplayOrientation());
+          //params.setRotation(mPreview.getDisplayOrientation());
 
           mCamera.setParameters(params);
           mCamera.takePicture(shutterCallback, null, jpegPictureCallback);
+        }
+      }.start();
+    } else {
+      canTakePicture = true;
+    }
+  }
+
+  public void takePreviewPicture(final int width, final int height, final int quality){
+    Log.d(TAG, "CameraPreview takePicture width: " + width + ", height: " + height + ", quality: " + quality);
+
+    if(mPreview != null) {
+      if(!canTakePicture){
+        return;
+      }
+
+      canTakePicture = false;
+
+      new Thread() {
+        public void run() {
+          Camera.Parameters params = mCamera.getParameters();
+
+          Camera.Size size = getOptimalPictureSize(width, height, params.getPreviewSize(), params.getSupportedPictureSizes());
+          params.setPictureSize(size.width, size.height);
+          currentQuality = quality;
+
+          if(cameraCurrentlyLocked == Camera.CameraInfo.CAMERA_FACING_FRONT) {
+            // The image will be recompressed in the callback
+            params.setJpegQuality(99);
+          } else {
+            params.setJpegQuality(quality);
+          }
+
+          //params.setRotation(mPreview.getDisplayOrientation());
+
+          mCamera.setParameters(params);
+          mCamera.takePicture(shutterCallback, null, jpegPreviewPictureCallback);
         }
       }.start();
     } else {

@@ -1,6 +1,6 @@
 THIS IS A FORK FROM
 https://github.com/cordova-plugin-camera-preview/cordova-plugin-camera-preview
-DEVELOPED by "westonganger"
+<br/>DEVELOPED by <a href="https://github.com/westonganger">'westonganger'</a>
 
 Desc: This fork is for capturing the preview image rather than getting a specific dimension.
 Extra method: 'takePreviewPicture' usage similar to the normal 'takePicture' and its callback

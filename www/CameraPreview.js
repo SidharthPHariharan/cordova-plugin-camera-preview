@@ -72,6 +72,28 @@ CameraPreview.takePicture = function(opts, onSuccess, onError) {
     exec(onSuccess, onError, PLUGIN_NAME, "takePicture", [opts.width, opts.height, opts.quality]);
 };
 
+CameraPreview.takePreviewPicture = function(opts, onSuccess, onError) {
+    if (!opts) {
+        opts = {};
+    } else if (isFunction(opts)) {
+        onSuccess = opts;
+        opts = {};
+    }
+
+    if (!isFunction(onSuccess)) {
+        return false;
+    }
+
+    opts.width = opts.width || 0;
+    opts.height = opts.height || 0;
+
+    if (!opts.quality || opts.quality > 100 || opts.quality < 0) {
+        opts.quality = 85;
+    }
+
+    exec(onSuccess, onError, PLUGIN_NAME, "takePreviewPicture", [opts.width, opts.height, opts.quality]);
+};
+
 CameraPreview.setColorEffect = function(effect, onSuccess, onError) {
     exec(onSuccess, onError, PLUGIN_NAME, "setColorEffect", [effect]);
 };
